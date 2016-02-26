@@ -1,6 +1,6 @@
 [package]
 name = "cuntpressor"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["mitchmindtree <mitchell.nordine@gmail.com>"]
 description = "A brutal dsp compressor, forcing the RMS of a signal to ~+/-1.0 unless silent."
 readme = "README.md"
@@ -10,10 +10,10 @@ repository = "https://github.com/RustAudio/dsp-chain.git"
 homepage = "https://github.com/RustAudio/dsp-chain"
 
 
-
-
 [dependencies]
-dsp-chain = "0.9.0"
-rms = "0.2.0"
-time_calc = "0.10.0"
+compressor = "0.1.1"
+dsp-chain = "0.11.0"
+time_calc = "0.10.1"
 
+[dev-dependencies]
+portaudio = "0.6.2"
