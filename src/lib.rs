@@ -1,136 +1,68 @@
-
+extern crate compressor;
 extern crate dsp;
-extern crate rms;
 extern crate time_calc as time;
 
+use dsp::Sample;
+use time::Ms;
 
+/// The compressor internally used by the **Cuntpressor**.
+pub type Compressor = compressor::RmsCompressor<compressor::Minimum>;
+
+
+/// A brutal dynamics processor, designed to force the RMS of a signal to the `target_amp`.
 #[derive(Clone, Debug)]
 pub struct Cuntpressor {
-    channels: Vec<Channel>,
-    interpolation_ms: time::calc::Ms,
-    rms: rms::Rms,
-    target_amp: f32,
+    compressor: Compressor,
 }
 
 
-
-fn init_channels(num_channels: usize) -> Vec<Channel> {
-    (0..num_channels)
-        .map(|_| Channel { maybe_prev_normaliser: None })
-        .collect()
-}
-
-
-#[derive(Copy, Clone, Debug)]
-pub struct Channel {
-    /// The multiplier used to force the RMS to ~+/-1.0.
-    maybe_prev_normaliser: Option<f32>,
-}
+pub const WINDOW_MS: time::Ms = Ms(10.0);
+pub const ATTACK_MS: time::Ms = Ms(1.0);
+pub const RELEASE_MS: time::Ms = Ms(1.0);
+pub const RATIO: f32 = 100.0;
 
 
 impl Cuntpressor {
 
-    /// Constructor for a new Cuntpressor.
-    pub fn new() -> Cuntpressor {
+    /// Construct a new Cuntpressor using an **Rms** with the given window size.
+    pub fn new(sample_hz: f64, n_channels: usize, threshold: f32) -> Self {
         Cuntpressor {
-            channels: Vec::new(),
-            interpolation_ms: 10.0,
-            rms: rms::Rms::new(0),
-            target_amp: 1.0,
+            compressor: Compressor::new(WINDOW_MS, ATTACK_MS, RELEASE_MS, sample_hz, n_channels,
+                                        threshold, RATIO),
         }
     }
 
-    /// The target amplitude that the RMS will be cuntpressed too.
-    pub fn target_amp(mut self, amp: f32) -> Cuntpressor {
-        self.target_amp = amp;
-        self
-    }
-
-    /// Build the Cuntpressor with a given number of channels.
-    pub fn channels(mut self, num_channels: usize) -> Cuntpressor {
-        self.channels = init_channels(num_channels);
-        self.rms = rms::Rms::new(num_channels);
-        self
-    }
-
-    /// Build the Cuntpressor with a given interpolation duration in milliseconds.
-    pub fn interpolation_ms(mut self, ms: time::calc::Ms) -> Cuntpressor {
-        self.interpolation_ms = ms;
-        self
-    }
+    // /// A new Cuntpressor with the given capacity.
+    // pub fn with_capacity<I: Into<Ms>>(window_ms: I, settings: dsp::Settings) -> Self {
+    //     Cuntpressor {
+    //         rms: Rms::with_capacity(window_ms, settings),
+    //     }
+    // }
 
 }
 
 
+impl<S> dsp::Node<S> for Cuntpressor
+    where S: dsp::Sample + dsp::sample::Duplex<f32>,
+{
 
-impl<S> dsp::Node<S> for Cuntpressor where S: dsp::Sample {
+    fn audio_requested(&mut self, output: &mut [S], settings: dsp::Settings) {
+        self.compressor.audio_requested(output, settings)
+        // self.rms.update(output, settings);
 
-    fn audio_requested(&mut self, buffer: &mut [S], settings: dsp::Settings) {
-        let Cuntpressor { ref mut channels, interpolation_ms, ref mut rms, target_amp } = *self;
-
-        if channels.len() != (settings.channels as usize) {
-            *channels = init_channels(settings.channels as usize);
-            *rms = rms::Rms::new(settings.channels as usize);
-        }
-
-        rms.update(buffer, settings);
-
-        let rms_per_channel = rms.per_channel().iter().map(|&rms| rms);
-        let channels_with_indices = channels.iter_mut().enumerate();
-        for ((channel_idx, channel), channel_rms) in channels_with_indices.zip(rms_per_channel) {
-
-            // Determine the normaliser for the current channel_rms.
-            let current_normaliser = if channel_rms > 0.0 {
-                target_amp / channel_rms
-            } else { 0.0 };
-
-            match channel.maybe_prev_normaliser {
-
-                // If the normaliser used for the previous buffer is different to the volume used
-                // for the current buffer, we should interpolate from it to the current volume to
-                // avoid clipping.
-                Some(prev_normaliser) if prev_normaliser != current_normaliser
-                    && interpolation_ms > 0.0 => {
-
-                    // Calculate the interpolation duration in frames along with the volume increment
-                    // to use for interpolation.
-                    let interpolation_frames = ::std::cmp::min(
-                        settings.frames as usize,
-                        time::Ms(self.interpolation_ms).samples(settings.sample_hz as f64) as usize
-                    );
-                    let normaliser_diff = current_normaliser - prev_normaliser;
-                    let normaliser_increment = normaliser_diff * (1.0 / interpolation_frames as f32);
-                    let mut normaliser = prev_normaliser;
-
-                    // Interpolated frames.
-                    for frame in 0..interpolation_frames {
-                        normaliser += normaliser_increment;
-                        let idx = frame * (settings.channels as usize) + channel_idx;
-                        let sample = &mut buffer[idx];
-                        *sample = sample.mul_amp(normaliser);
-                    }
-
-                    // Remaining frames.
-                    for frame in interpolation_frames..(settings.frames as usize) {
-                        let idx = frame * (settings.channels as usize) + channel_idx;
-                        let sample = &mut buffer[idx];
-                        *sample = sample.mul_amp(normaliser);
-                    }
-                },
-
-                // Otherwise, simply multiply every sample by the current volume.
-                _ => for frame in 0..(settings.frames as usize) {
-                    let idx = frame * (settings.channels as usize) + channel_idx;
-                    let sample = &mut buffer[idx];
-                    *sample = sample.mul_amp(current_normaliser);
-                },
-
-            }
-
-            // Always set the current volume as the new `maybe_prev`.
-            channel.maybe_prev_normaliser = Some(current_normaliser);
-        }
+        // let n_frames = settings.frames as usize;
+        // let n_channels = settings.channels as usize;
+        // let mut idx = 0;
+        // for i in 0..n_frames {
+        //     let rms_per_channel = self.rms.per_channel(i);
+        //     for j in 0..n_channels {
+        //         let wave = output[idx].to_wave();
+        //         let rms = rms_per_channel[j];
+        //         let rms_normaliser = if rms > 0.0 { 1.0 / rms } else { 0.0 };
+        //         output[idx] = Sample::from_wave(wave * rms_normaliser);
+        //         idx += 1;
+        //     }
+        // }
     }
 
 }
-
