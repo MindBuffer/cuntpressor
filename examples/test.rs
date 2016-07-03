@@ -12,27 +12,24 @@ fn main() {
 fn run() -> Result<(), pa::Error> {
 
     // The number of channels we want in our stream.
-    const CHANNELS: u16 = 2;
+    const CHANNELS: usize = 2;
     // The size of the **Rms**' moving **Window**.
     const SAMPLE_RATE: f64 = 44_100.0;
     const FRAMES: u32 = 128;
     const THRESHOLD: f32 = 0.1;
 
     // Construct our Rms reader.
-    let mut cuntpressor = Cuntpressor::new(SAMPLE_RATE, CHANNELS as usize, THRESHOLD);
+    let mut cuntpressor = Cuntpressor::new(SAMPLE_RATE, THRESHOLD);
 
     // Callback used to construct the duplex sound stream.
-    let callback = move |pa::DuplexStreamCallbackArgs { in_buffer, out_buffer, frames, .. }| {
+    let callback = move |pa::DuplexStreamCallbackArgs { in_buffer, out_buffer, .. }| {
+        let in_buffer: &[[f32; CHANNELS]] = dsp::slice::to_frame_slice(in_buffer).unwrap();
+        let out_buffer: &mut [[f32; CHANNELS]] = dsp::slice::to_frame_slice_mut(out_buffer).unwrap();
+        dsp::slice::write(out_buffer, in_buffer);
 
-        // Write the input to the output for fun.
-        for (out_sample, in_sample) in out_buffer.iter_mut().zip(in_buffer.iter()) {
-            *out_sample = *in_sample;
-        }
+        cuntpressor.audio_requested(out_buffer, SAMPLE_RATE);
 
-        let settings = dsp::Settings::new(SAMPLE_RATE as u32, frames as u16, CHANNELS);
-        cuntpressor.audio_requested(out_buffer, settings);
-
-        println!("{:?}", &out_buffer[0..8]);
+        println!("{:?}", &out_buffer[0..4]);
 
         pa::Continue
     };
