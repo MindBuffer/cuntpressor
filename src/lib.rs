@@ -14,6 +14,15 @@ pub struct Cuntpressor<F>
     compressor: Compressor<F>,
 }
 
+impl<F> std::fmt::Debug for Cuntpressor<F>
+    where F: dsp::Frame + std::fmt::Debug,
+          F::Float: dsp::Frame + std::fmt::Debug,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        write!(f, "Cuntpressor {{ compressor: {:?} }}", &self.compressor)
+    }
+}
+
 
 pub const WINDOW_MS: time::Ms = time::Ms(10.0);
 pub const ATTACK_MS: time::Ms = time::Ms(1.0);
